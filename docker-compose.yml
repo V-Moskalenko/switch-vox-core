@@ -1,0 +1,176 @@
+name: switch-vox-core
+
+# Все модели используют одну GPU; веса доступны только для чтения и без внешней сети.
+x-model: &model
+  init: true
+  restart: "no"
+  networks: [voice]
+  stop_grace_period: 30s
+  shm_size: 1gb
+  environment: &model-environment
+    HF_HUB_OFFLINE: "1"
+    TRANSFORMERS_OFFLINE: "1"
+    VLLM_NO_USAGE_STATS: "1"
+    PYTHONUNBUFFERED: "1"
+    RUNTIME_LOG_LEVEL: ${RUNTIME_LOG_LEVEL:-INFO}
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            device_ids: ["0"]
+            capabilities: [gpu]
+
+x-models: &models
+  type: bind
+  source: ./data
+  target: /models
+  read_only: true
+  bind:
+    create_host_path: false
+
+services:
+  # Один раз подготавливает закреплённые веса в ./data; повторный запуск использует готовые файлы.
+  # Интернет нужен для первой загрузки, GPU этому контейнеру не выделяется.
+  model-init:
+    image: switch-vox-core-models:local
+    build:
+      context: ./deploy/models
+    init: true
+    restart: "no"
+    environment:
+      RUNTIME_LOG_LEVEL: ${RUNTIME_LOG_LEVEL:-INFO}
+    networks: [entry]
+    read_only: true
+    cap_drop: [ALL]
+    # Поддерживает существующий Linux bind-каталог и cache lockfiles, принадлежащие другому UID.
+    cap_add: [DAC_OVERRIDE, FOWNER]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    volumes:
+      - type: bind
+        source: ./data
+        target: /models
+        bind:
+          create_host_path: true
+
+  # Распознавание речи запускается после успешной подготовки всех весов.
+  asr:
+    <<: *model
+    image: switch-vox-core-asr:local
+    depends_on:
+      model-init:
+        condition: service_completed_successfully
+    build:
+      context: ./deploy/asr
+    volumes:
+      - *models
+      - asr-cache:/home/vox/.cache
+    healthcheck:
+      test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 180s
+
+  # Последовательная загрузка ASR → LLM → TTS уменьшает пик VRAM при старте.
+  llm:
+    <<: *model
+    image: vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34
+    entrypoint: [python3, /app/run_llm.py]
+    depends_on:
+      model-init:
+        condition: service_completed_successfully
+      asr:
+        condition: service_healthy
+    volumes:
+      - *models
+      - type: bind
+        source: ./deploy/llm/run_llm.py
+        target: /app/run_llm.py
+        read_only: true
+        bind:
+          create_host_path: false
+      - llm-cache:/root/.cache
+    healthcheck:
+      test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 180s
+
+  # CosyVoice3 озвучивает текст; голос задаётся парой reference WAV/текст в .env.
+  tts:
+    <<: *model
+    image: switch-vox-core-tts:local
+    environment:
+      <<: *model-environment
+      TTS_REFERENCE_WAV: ${TTS_REFERENCE_WAV:-}
+      TTS_REFERENCE_TEXT: ${TTS_REFERENCE_TEXT:-}
+    build:
+      context: ./deploy/cosyvoice
+    depends_on:
+      model-init:
+        condition: service_completed_successfully
+      llm:
+        condition: service_healthy
+    volumes:
+      - *models
+      - tts-cache:/home/vox/.cache
+    healthcheck:
+      test: [CMD, python, -c, "import orjson, urllib.request; assert orjson.loads(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read())['ready'] is True"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 180s
+
+  # Единственная точка входа с хоста: браузер, API и WebSocket на localhost:8000.
+  app-cascade:
+    image: switch-vox-core-app:local
+    build:
+      context: .
+    init: true
+    restart: "no"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      API__HOST: 0.0.0.0
+      API__PORT: "8000"
+      API__WORKERS: "1"
+      API__MAX_SESSIONS: "1"
+      INFERENCE__MODE: cascade
+      INFERENCE__ASR_BASE_URL: http://asr:8000
+      INFERENCE__LLM_BASE_URL: http://llm:8000/v1
+      INFERENCE__TTS_BASE_URL: http://tts:8000
+    ports:
+      - target: 8000
+        published: "8000"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    networks: [voice, entry]
+    depends_on:
+      asr:
+        condition: service_healthy
+      llm:
+        condition: service_healthy
+      tts:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=8)"]
+      interval: 5s
+      timeout: 10s
+      retries: 6
+      start_period: 10s
+    stop_grace_period: 15s
+
+networks:
+  voice:
+    internal: true
+  entry:
+    driver: bridge
+
+volumes:
+  asr-cache:
+  llm-cache:
+  tts-cache:

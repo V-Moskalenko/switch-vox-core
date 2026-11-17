@@ -1,0 +1,2 @@
+# Старый upstream openai-whisper использует pkg_resources при подготовке metadata.
+setuptools==78.1.1

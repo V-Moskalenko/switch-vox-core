@@ -1,0 +1,4 @@
+upstream-inspect/
+test/
+__pycache__/
+*.pyc

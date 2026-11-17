@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <link rel="icon" href="data:,">
+    <title>Switch Vox Core — голосовой диалог</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script type="module" src="/static/app.js"></script>
+</head>
+<body>
+    <main>
+        <header class="topbar">
+            <a class="brand" href="/">SWITCH VOX <span>CORE</span></a>
+            <span class="connection" id="connection" data-state="offline">Не подключено</span>
+        </header>
+        <section class="intro" aria-labelledby="title">
+            <p class="eyebrow">Локальный голосовой ассистент</p>
+            <h1 id="title">Поговорим.</h1>
+            <p class="description">Подключите микрофон и удерживайте кнопку, пока говорите. Отпустите, чтобы отправить реплику.</p>
+        </section>
+        <div class="workspace">
+            <section class="conversation" aria-labelledby="conversation-title">
+                <div class="section-heading">
+                    <h2 id="conversation-title">Разговор</h2>
+                    <span id="mode" class="small-label">Новая сессия</span>
+                </div>
+                <div id="messages" class="messages" role="log" aria-live="polite" aria-relevant="additions text">
+                    <p id="empty" class="empty">Реплики появятся здесь.<br>История хранится только до отключения.</p>
+                </div>
+            </section>
+            <section class="controls" aria-label="Управление разговором">
+                <label class="auto-option">
+                    <input id="auto" type="checkbox" aria-labelledby="auto-title" aria-describedby="auto-help">
+                    <span class="auto-copy">
+                        <span id="auto-title" class="auto-title">Автоматический режим</span>
+                        <span id="auto-help" class="auto-help">Диалог без кнопки</span>
+                    </span>
+                    <span class="auto-switch" aria-hidden="true"></span>
+                </label>
+                <button id="connect" class="connect-button" type="button">Подключить микрофон</button>
+                <div class="speak-area">
+                    <button id="ptt" class="ptt-button" type="button" disabled aria-pressed="false" aria-label="Удерживайте, чтобы говорить" aria-describedby="ptt-help">
+                        <svg aria-hidden="true" width="32" height="40" viewBox="0 0 32 40" fill="none"><rect x="10" y="2" width="12" height="23" rx="6" stroke="currentColor" stroke-width="2"/><path d="M4 18v2a12 12 0 0 0 24 0v-2M16 32v6M10 38h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                        <span id="ptt-label">Удерживайте,<br>чтобы говорить</span>
+                    </button>
+                    <meter id="level" min="0" max="1" value="0" aria-label="Уровень микрофона"></meter>
+                    <p id="ptt-help" class="hint">Удерживайте кнопку мышью<br>или пробел на странице</p>
+                </div>
+                <button id="stop" class="stop-button" type="button" disabled>Остановить ответ</button>
+                <p id="status" class="status" role="status" aria-live="polite">Микрофон ещё не подключён.</p>
+                <p id="error" class="error" role="alert" hidden></p>
+            </section>
+        </div>
+        <footer><span>Лучше использовать гарнитуру.</span><span>Одна сессия · Русский язык</span></footer>
+    </main>
+</body>
+</html>
